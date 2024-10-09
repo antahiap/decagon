@@ -1,3 +1,4 @@
+import argparse
 from collections import defaultdict
 
 import tensorflow as tf
@@ -5,8 +6,11 @@ import tensorflow as tf
 from .layers import GraphConvolutionMulti, GraphConvolutionSparseMulti, \
     DistMultDecoder, InnerProductDecoder, DEDICOMDecoder, BilinearDecoder
 
-flags = tf.app.flags
-FLAGS = flags.FLAGS
+# parser = argparse.ArgumentParser()
+# FLAGS = parser.parse_args()
+
+# flags = tf.app.flags
+# FLAGS = flags.FLAGS
 
 
 class Model(object):
@@ -32,7 +36,8 @@ class Model(object):
 
     def build(self):
         """ Wrapper for _build() """
-        with tf.variable_scope(self.name):
+        # with tf.variable_scope(self.name):
+        with tf.name_scope(self.name):
             self._build()
         variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
         self.vars = {var.name: var for var in variables}
@@ -45,8 +50,9 @@ class Model(object):
 
 
 class DecagonModel(Model):
-    def __init__(self, placeholders, num_feat, nonzero_feat, edge_types, decoders, **kwargs):
+    def __init__(self, FLAGS, placeholders, num_feat, nonzero_feat, edge_types, decoders, **kwargs):
         super(DecagonModel, self).__init__(**kwargs)
+        self.FLAGS = FLAGS
         self.edge_types = edge_types
         self.num_edge_types = sum(self.edge_types.values())
         self.num_obj_types = max([i for i, _ in self.edge_types]) + 1
@@ -65,7 +71,7 @@ class DecagonModel(Model):
         self.hidden1 = defaultdict(list)
         for i, j in self.edge_types:
             self.hidden1[i].append(GraphConvolutionSparseMulti(
-                input_dim=self.input_dim, output_dim=FLAGS.hidden1,
+                input_dim=self.input_dim, output_dim=self.FLAGS.hidden1,
                 edge_type=(i,j), num_types=self.edge_types[i,j],
                 adj_mats=self.adj_mats, nonzero_feat=self.nonzero_feat,
                 act=lambda x: x, dropout=self.dropout,
@@ -77,7 +83,7 @@ class DecagonModel(Model):
         self.embeddings_reltyp = defaultdict(list)
         for i, j in self.edge_types:
             self.embeddings_reltyp[i].append(GraphConvolutionMulti(
-                input_dim=FLAGS.hidden1, output_dim=FLAGS.hidden2,
+                input_dim=self.FLAGS.hidden1, output_dim=self.FLAGS.hidden2,
                 edge_type=(i,j), num_types=self.edge_types[i,j],
                 adj_mats=self.adj_mats, act=lambda x: x,
                 dropout=self.dropout, logging=self.logging)(self.hidden1[j]))
@@ -92,22 +98,22 @@ class DecagonModel(Model):
             decoder = self.decoders[i, j]
             if decoder == 'innerproduct':
                 self.edge_type2decoder[i, j] = InnerProductDecoder(
-                    input_dim=FLAGS.hidden2, logging=self.logging,
+                    input_dim=self.FLAGS.hidden2, logging=self.logging,
                     edge_type=(i, j), num_types=self.edge_types[i, j],
                     act=lambda x: x, dropout=self.dropout)
             elif decoder == 'distmult':
                 self.edge_type2decoder[i, j] = DistMultDecoder(
-                    input_dim=FLAGS.hidden2, logging=self.logging,
+                    input_dim=self.FLAGS.hidden2, logging=self.logging,
                     edge_type=(i, j), num_types=self.edge_types[i, j],
                     act=lambda x: x, dropout=self.dropout)
             elif decoder == 'bilinear':
                 self.edge_type2decoder[i, j] = BilinearDecoder(
-                    input_dim=FLAGS.hidden2, logging=self.logging,
+                    input_dim=self.FLAGS.hidden2, logging=self.logging,
                     edge_type=(i, j), num_types=self.edge_types[i, j],
                     act=lambda x: x, dropout=self.dropout)
             elif decoder == 'dedicom':
                 self.edge_type2decoder[i, j] = DEDICOMDecoder(
-                    input_dim=FLAGS.hidden2, logging=self.logging,
+                    input_dim=self.FLAGS.hidden2, logging=self.logging,
                     edge_type=(i, j), num_types=self.edge_types[i, j],
                     act=lambda x: x, dropout=self.dropout)
             else:

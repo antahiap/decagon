@@ -1,5 +1,6 @@
 from __future__ import division
 from __future__ import print_function
+import argparse
 from operator import itemgetter
 from itertools import combinations
 import time
@@ -80,21 +81,33 @@ def get_accuracy_scores(edges_pos, edges_neg, edge_type):
 
 
 def construct_placeholders(edge_types):
+    batch = tf.constant(FLAGS.batch_size, dtype=tf.int32)
+    batch_edge_type_idx = tf.constant(0, dtype=tf.int32)  # Placeholder for batch edge type index
+    batch_row_edge_type = tf.constant(0, dtype=tf.int32)  # Placeholder for row edge type
+    batch_col_edge_type = tf.constant(0, dtype=tf.int32)  # Placeholder for column edge type
+    degrees = tf.constant(np.zeros(n_genes), dtype=tf.int32)  # Use appropriate degrees data
+    dropout = tf.constant(0.0, name='dropout')
+
+
     placeholders = {
-        'batch': tf.placeholder(tf.int32, name='batch'),
-        'batch_edge_type_idx': tf.placeholder(tf.int32, shape=(), name='batch_edge_type_idx'),
-        'batch_row_edge_type': tf.placeholder(tf.int32, shape=(), name='batch_row_edge_type'),
-        'batch_col_edge_type': tf.placeholder(tf.int32, shape=(), name='batch_col_edge_type'),
-        'degrees': tf.placeholder(tf.int32),
-        'dropout': tf.placeholder_with_default(0., shape=()),
+        'batch': batch,
+        'batch_edge_type_idx': batch_edge_type_idx,
+        'batch_row_edge_type': batch_row_edge_type,
+        'batch_col_edge_type': batch_col_edge_type,
+        'degrees': degrees,
+        'dropout': dropout,
     }
     placeholders.update({
-        'adj_mats_%d,%d,%d' % (i, j, k): tf.sparse_placeholder(tf.float32)
-        for i, j in edge_types for k in range(edge_types[i,j])})
+        'adj_mats_%d,%d,%d' % (i, j, k): tf.sparse.SparseTensor for i, j in edge_types for k in range(edge_types[i,j])
+    })
     placeholders.update({
-        'feat_%d' % i: tf.sparse_placeholder(tf.float32)
-        for i, _ in edge_types})
+        'feat_%d' % i: tf.sparse.SparseTensor for i, _ in edge_types
+    })
     return placeholders
+
+def train_step(feed_dict):
+    return opt(feed_dict)
+
 
 ###########################################################
 #
@@ -189,19 +202,36 @@ print("Edge types:", "%d" % num_edge_types)
 # Settings and placeholders
 #
 ###########################################################
+# Create an argument parser
+parser = argparse.ArgumentParser()
 
-flags = tf.app.flags
-FLAGS = flags.FLAGS
-flags.DEFINE_integer('neg_sample_size', 1, 'Negative sample size.')
-flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
-flags.DEFINE_integer('epochs', 50, 'Number of epochs to train.')
-flags.DEFINE_integer('hidden1', 64, 'Number of units in hidden layer 1.')
-flags.DEFINE_integer('hidden2', 32, 'Number of units in hidden layer 2.')
-flags.DEFINE_float('weight_decay', 0, 'Weight for L2 loss on embedding matrix.')
-flags.DEFINE_float('dropout', 0.1, 'Dropout rate (1 - keep probability).')
-flags.DEFINE_float('max_margin', 0.1, 'Max margin parameter in hinge loss')
-flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
-flags.DEFINE_boolean('bias', True, 'Bias term.')
+# Define your arguments
+parser.add_argument('--neg_sample_size', type=int, default=1, help='Negative sample size.')
+parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial learning rate.')
+parser.add_argument('--epochs', type=int, default=50, help='Number of epochs to train.')
+parser.add_argument('--hidden1', type=int, default=64, help='Number of units in hidden layer 1.')
+parser.add_argument('--hidden2', type=int, default=32, help='Number of units in hidden layer 2.')
+parser.add_argument('--weight_decay', type=float, default=0, help='Weight for L2 loss on embedding matrix.')
+parser.add_argument('--dropout', type=float, default=0.1, help='Dropout rate (1 - keep probability).')
+parser.add_argument('--max_margin', type=float, default=0.1, help='Max margin parameter in hinge loss.')
+parser.add_argument('--batch_size', type=int, default=512, help='Minibatch size.')
+parser.add_argument('--bias', type=bool, default=True, help='Bias term.')
+
+# Parse the arguments
+FLAGS = parser.parse_args()
+
+# flags = tf.app.flags
+# FLAGS = flags.FLAGS
+# flags.DEFINE_integer('neg_sample_size', 1, 'Negative sample size.')
+# flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
+# flags.DEFINE_integer('epochs', 50, 'Number of epochs to train.')
+# flags.DEFINE_integer('hidden1', 64, 'Number of units in hidden layer 1.')
+# flags.DEFINE_integer('hidden2', 32, 'Number of units in hidden layer 2.')
+# flags.DEFINE_float('weight_decay', 0, 'Weight for L2 loss on embedding matrix.')
+# flags.DEFINE_float('dropout', 0.1, 'Dropout rate (1 - keep probability).')
+# flags.DEFINE_float('max_margin', 0.1, 'Max margin parameter in hinge loss')
+# flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
+# flags.DEFINE_boolean('bias', True, 'Bias term.')
 # Important -- Do not evaluate/print validation performance every iteration as it can take
 # substantial amount of time
 PRINT_PROGRESS_EVERY = 150
@@ -226,6 +256,7 @@ minibatch = EdgeMinibatchIterator(
 
 print("Create model")
 model = DecagonModel(
+    FLAGS,
     placeholders=placeholders,
     num_feat=num_feat,
     nonzero_feat=nonzero_feat,
@@ -273,8 +304,13 @@ for epoch in range(FLAGS.epochs):
 
         t = time.time()
 
-        # Training step: run single weight update
-        outs = sess.run([opt.opt_op, opt.cost, opt.batch_edge_type_idx], feed_dict=feed_dict)
+
+        with tf.GradientTape() as tape:
+            # Apply gradients and compute loss
+            outs = train_step(feed_dict)
+
+        # # Training step: run single weight update
+        # outs = sess.run([opt.opt_op, opt.cost, opt.batch_edge_type_idx], feed_dict=feed_dict)
         train_cost = outs[1]
         batch_edge_type = outs[2]
 

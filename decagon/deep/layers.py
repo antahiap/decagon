@@ -1,9 +1,13 @@
+import argparse
 import tensorflow as tf
 
 from . import inits
 
-flags = tf.app.flags
-FLAGS = flags.FLAGS
+parser = argparse.ArgumentParser()
+FLAGS = parser.parse_args()
+
+# flags = tf.app.flags
+# FLAGS = flags.FLAGS
 
 # global unique layer ID dictionary for layer name assignment
 _LAYER_UIDS = {}
@@ -25,9 +29,19 @@ def dropout_sparse(x, keep_prob, num_nonzero_elems):
     """
     noise_shape = [num_nonzero_elems]
     random_tensor = keep_prob
-    random_tensor += tf.random_uniform(noise_shape)
+    random_tensor += tf.random.uniform(noise_shape)
+    # random_tensor += tf.random_uniform(noise_shape)
     dropout_mask = tf.cast(tf.floor(random_tensor), dtype=tf.bool)
-    pre_out = tf.sparse_retain(x, dropout_mask)
+    # pre_out = tf.sparse_retain(x, dropout_mask)
+    indices = tf.boolean_mask(x.indices, dropout_mask)  # Filter the indices where dropout_mask is True
+    values = tf.boolean_mask(x.values, dropout_mask)    # Filter the values where dropout_mask is True
+    shape = x.dense_shape  # Keep the original shape
+
+    # Create a new SparseTensor with the retained elements
+    pre_out = tf.sparse.SparseTensor(indices, values, shape)
+
+    # Optionally convert to a dense tensor (if needed)
+    pre_out = tf.sparse.to_dense(pre_out)
     return pre_out * (1./keep_prob)
 
 
@@ -77,7 +91,8 @@ class GraphConvolutionSparseMulti(MultiLayer):
         self.act = act
         self.issparse = True
         self.nonzero_feat = nonzero_feat
-        with tf.variable_scope('%s_vars' % self.name):
+        # with tf.variable_scope('%s_vars' % self.name):
+        with tf.name_scope('%s_vars' % self.name):
             for k in range(self.num_types):
                 self.vars['weights_%d' % k] = inits.weight_variable_glorot(
                     input_dim[self.edge_type[1]], output_dim, name='weights_%d' % k)

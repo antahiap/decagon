@@ -1,8 +1,12 @@
 import tensorflow as tf
 import numpy as np
+import argparse
 
-flags = tf.app.flags
-FLAGS = flags.FLAGS
+parser = argparse.ArgumentParser()
+FLAGS = parser.parse_args()
+
+# flags = tf.app.flags
+# FLAGS = flags.FLAGS
 
 
 class DecagonOptimizer(object):
